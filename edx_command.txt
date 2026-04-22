@@ -1,0 +1,3 @@
+cd "/Users/arielmazor/Documents/Professor Wu's Lab/FeNbS"
+source edx_env/bin/activate
+python edx.py

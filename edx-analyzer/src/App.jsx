@@ -11,6 +11,9 @@ const M_FE = 55.845;
 const M_NB = 92.906;
 const calcX = (wFe, wNb) => (wFe / M_FE) * (M_NB / wNb);
 
+/* Short display format: 2 decimal places for clean readability */
+const fmtX = (v) => v.toFixed(2);
+
 /* ── Statistics ─────────────────────────────────────────────────────────── */
 function stats(vals) {
   if (!vals.length) return { mean: 0, std: 0, min: 0, max: 0, n: 0 };
@@ -230,7 +233,7 @@ function exportExcel(samples) {
     s.spots.forEach((p, i) => spots.push({ "Sample #": s.number, "Sample Name": s.name || "", "Spot #": i + 1, "Fe wt%": p.wFe, "Nb wt%": p.wNb, "x value": +p.x.toFixed(4) }));
     if (s.spots.length) {
       const st = stats(s.spots.map((p) => p.x));
-      summary.push({ "Sample #": s.number, "Sample Name": s.name || "", n: st.n, "Mean x": +st.mean.toFixed(4), "Std Dev": +st.std.toFixed(4), "Min x": +st.min.toFixed(4), "Max x": +st.max.toFixed(4), Composition: `Fe_${st.mean.toFixed(4)}NbS2` });
+      summary.push({ "Sample #": s.number, "Sample Name": s.name || "", n: st.n, "Mean x": +st.mean.toFixed(4), "Std Dev": +st.std.toFixed(4), "Min x": +st.min.toFixed(4), "Max x": +st.max.toFixed(4), Composition: `Fe_${fmtX(st.mean)}NbS2` });
     }
   });
   const wb = XLSX.utils.book_new();
@@ -239,12 +242,101 @@ function exportExcel(samples) {
   XLSX.writeFile(wb, "edx_results.xlsx");
 }
 
+function buildHistogramSVG(xValues, st, width = 420, height = 200) {
+  if (xValues.length < 2) return "";
+  const binCount = Math.min(10, Math.max(3, Math.ceil(Math.sqrt(xValues.length))));
+  const bins = histogram(xValues, binCount);
+  const maxCount = Math.max(...bins.map((b) => b.count), 1);
+  const pad = { top: 25, right: 15, bottom: 40, left: 40 };
+  const cw = width - pad.left - pad.right;
+  const ch = height - pad.top - pad.bottom;
+  const barW = cw / bins.length - 2;
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" style="font-family:'Helvetica Neue',Arial,sans-serif">`;
+  // Grid lines
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ch / 4) * i;
+    svg += `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="#e5e7eb" stroke-dasharray="3 3"/>`;
+  }
+  // Bars
+  bins.forEach((b, i) => {
+    const barH = (b.count / maxCount) * ch;
+    const x = pad.left + i * (cw / bins.length) + 1;
+    const y = pad.top + ch - barH;
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="#5B8BD4" rx="3"/>`;
+    if (bins.length <= 12) {
+      svg += `<text x="${x + barW / 2}" y="${height - pad.bottom + 14}" text-anchor="middle" font-size="8" fill="#666">${b.bin}</text>`;
+    }
+  });
+  // Mean line
+  if (st.n > 1) {
+    const meanPos = pad.left + ((st.mean - bins[0].binStart) / (bins[bins.length - 1].binEnd - bins[0].binStart)) * cw;
+    if (meanPos >= pad.left && meanPos <= width - pad.right) {
+      svg += `<line x1="${meanPos}" y1="${pad.top}" x2="${meanPos}" y2="${pad.top + ch}" stroke="#C0392B" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+      svg += `<text x="${meanPos + 4}" y="${pad.top + 12}" font-size="10" fill="#C0392B" font-weight="600">μ = ${st.mean.toFixed(4)}</text>`;
+    }
+  }
+  // Y-axis labels
+  for (let i = 0; i <= 4; i++) {
+    const val = Math.round((maxCount / 4) * (4 - i));
+    const y = pad.top + (ch / 4) * i;
+    svg += `<text x="${pad.left - 6}" y="${y + 4}" text-anchor="end" font-size="9" fill="#888">${val}</text>`;
+  }
+  // Axis labels
+  svg += `<text x="${pad.left + cw / 2}" y="${height - 4}" text-anchor="middle" font-size="10" fill="#666">x value</text>`;
+  svg += `<text x="12" y="${pad.top + ch / 2}" text-anchor="middle" font-size="10" fill="#666" transform="rotate(-90,12,${pad.top + ch / 2})">Count</text>`;
+  svg += `</svg>`;
+  return svg;
+}
+
+function buildSummaryChartSVG(samples, width = 420, height = 200) {
+  const data = samples.filter((s) => s.spots.length).map((s) => {
+    const st = stats(s.spots.map((p) => p.x));
+    return { name: s.name || `#${s.number}`, mean: st.mean, std: st.std };
+  });
+  if (data.length < 2) return "";
+  const pad = { top: 25, right: 15, bottom: 40, left: 50 };
+  const cw = width - pad.left - pad.right;
+  const ch = height - pad.top - pad.bottom;
+  const maxVal = Math.max(...data.map((d) => d.mean + d.std)) * 1.15 || 1;
+  const barW = Math.min(40, cw / data.length - 10);
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" style="font-family:'Helvetica Neue',Arial,sans-serif">`;
+  // Grid
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.top + (ch / 4) * i;
+    const val = (maxVal * (4 - i) / 4).toFixed(2);
+    svg += `<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="#e5e7eb" stroke-dasharray="3 3"/>`;
+    svg += `<text x="${pad.left - 6}" y="${y + 4}" text-anchor="end" font-size="9" fill="#888">${val}</text>`;
+  }
+  data.forEach((d, i) => {
+    const x = pad.left + (i + 0.5) * (cw / data.length) - barW / 2;
+    const barH = (d.mean / maxVal) * ch;
+    const y = pad.top + ch - barH;
+    svg += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="#5B8BD4" rx="3"/>`;
+    // Error bar
+    if (d.std > 0) {
+      const cx = x + barW / 2;
+      const errTop = pad.top + ch - ((d.mean + d.std) / maxVal) * ch;
+      const errBot = pad.top + ch - ((d.mean - d.std) / maxVal) * ch;
+      svg += `<line x1="${cx}" y1="${errTop}" x2="${cx}" y2="${errBot}" stroke="#1a1d23" stroke-width="2"/>`;
+      svg += `<line x1="${cx - 5}" y1="${errTop}" x2="${cx + 5}" y2="${errTop}" stroke="#1a1d23" stroke-width="2"/>`;
+      svg += `<line x1="${cx - 5}" y1="${errBot}" x2="${cx + 5}" y2="${errBot}" stroke="#1a1d23" stroke-width="2"/>`;
+    }
+    svg += `<text x="${x + barW / 2}" y="${height - pad.bottom + 14}" text-anchor="middle" font-size="9" fill="#666">${d.name}</text>`;
+  });
+  svg += `<text x="14" y="${pad.top + ch / 2}" text-anchor="middle" font-size="10" fill="#666" transform="rotate(-90,14,${pad.top + ch / 2})">x value</text>`;
+  svg += `</svg>`;
+  return svg;
+}
+
 function printReport(samples) {
   const w = window.open("", "_blank");
   const now = new Date().toLocaleString();
   let h = `<!DOCTYPE html><html><head><title>EDX Report</title><style>
     body{font-family:'Helvetica Neue',Arial,sans-serif;color:#1a1d23;margin:40px;font-size:12px}
     h1{font-size:22px;margin-bottom:4px}h2{font-size:16px;margin-top:28px;border-bottom:2px solid #3366CC;padding-bottom:4px}
+    h3{font-size:13px;margin-top:18px;color:#555}
     .meta{color:#666;font-size:11px;margin-bottom:20px}
     table{border-collapse:collapse;width:100%;margin:12px 0}
     th{background:#3366CC;color:#fff;padding:8px 12px;text-align:left;font-size:11px}
@@ -255,20 +347,29 @@ function printReport(samples) {
     .sb .l{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px}
     .sb .v{font-size:16px;font-weight:600;font-family:'Courier New',monospace}
     .comp{font-size:14px;font-weight:600;margin:8px 0}
+    .chart{margin:16px 0;text-align:center}
     .pb{page-break-before:always}
     @media print{body{margin:20px}}
   </style></head><body>`;
   h += `<h1>EDX Fe Concentration Report for Fe<sub>x</sub>NbS<sub>2</sub> Samples</h1><div class="meta">Generated: ${now} · ${samples.length} sample(s)</div>`;
   h += `<h2>Summary</h2><table><tr><th>Sample</th><th>Name</th><th>n</th><th>Mean x</th><th>Std Dev</th><th>Min</th><th>Max</th><th>Composition</th></tr>`;
-  samples.forEach((s) => { if (!s.spots.length) return; const st = stats(s.spots.map((p) => p.x)); h += `<tr><td>${s.number}</td><td>${s.name || "—"}</td><td>${st.n}</td><td>${st.mean.toFixed(4)}</td><td>${st.std.toFixed(4)}</td><td>${st.min.toFixed(4)}</td><td>${st.max.toFixed(4)}</td><td>Fe<sub>${st.mean.toFixed(4)}</sub>NbS<sub>2</sub></td></tr>`; });
+  samples.forEach((s) => { if (!s.spots.length) return; const st = stats(s.spots.map((p) => p.x)); h += `<tr><td>${s.number}</td><td>${s.name || "—"}</td><td>${st.n}</td><td>${st.mean.toFixed(4)}</td><td>${st.std.toFixed(4)}</td><td>${st.min.toFixed(4)}</td><td>${st.max.toFixed(4)}</td><td>Fe<sub>${fmtX(st.mean)}</sub>NbS<sub>2</sub></td></tr>`; });
   h += `</table>`;
+  // Summary chart
+  const summSVG = buildSummaryChartSVG(samples);
+  if (summSVG) { h += `<h3>Mean ± σ Across Samples</h3><div class="chart">${summSVG}</div>`; }
+  // Per-sample details
   samples.forEach((s, si) => {
     if (!s.spots.length) return;
     const st = stats(s.spots.map((p) => p.x));
     h += `<div class="${si > 0 ? "pb" : ""}"><h2>Sample ${s.number}${s.name ? ` — ${s.name}` : ""}</h2>`;
     if (s.operator) h += `<div class="meta">Operator: ${s.operator}</div>`;
-    h += `<div class="sg"><div class="sb"><div class="l">Mean x</div><div class="v">${st.mean.toFixed(4)}</div></div><div class="sb"><div class="l">Std Dev</div><div class="v">${st.std.toFixed(4)}</div></div><div class="sb"><div class="l">Min / Max</div><div class="v">${st.min.toFixed(4)} / ${st.max.toFixed(4)}</div></div><div class="sb"><div class="l">Points</div><div class="v">${st.n}</div></div></div>`;
-    h += `<div class="comp">Composition: Fe<sub>${st.mean.toFixed(4)}</sub>NbS<sub>2</sub>${st.n > 1 ? ` ± ${st.std.toFixed(4)}` : ""}</div>`;
+    h += `<div class="sg"><div class="sb"><div class="l">Mean x</div><div class="v">${fmtX(st.mean)}</div></div><div class="sb"><div class="l">Std Dev</div><div class="v">${fmtX(st.std)}</div></div><div class="sb"><div class="l">Min / Max</div><div class="v">${fmtX(st.min)} / ${fmtX(st.max)}</div></div><div class="sb"><div class="l">Points</div><div class="v">${st.n}</div></div></div>`;
+    h += `<div class="comp">Composition: Fe<sub>${fmtX(st.mean)}</sub>NbS<sub>2</sub>${st.n > 1 ? ` ± ${fmtX(st.std)}` : ""}</div>`;
+    // Histogram
+    const histSVG = buildHistogramSVG(s.spots.map((p) => p.x), st);
+    if (histSVG) { h += `<h3>Distribution of x Values</h3><div class="chart">${histSVG}</div>`; }
+    // Spot table
     h += `<table><tr><th>Spot #</th><th>Fe wt%</th><th>Nb wt%</th><th>x value</th><th>Running Avg</th></tr>`;
     s.spots.forEach((p, i) => { const ra = s.spots.slice(0, i + 1).reduce((a, b) => a + b.x, 0) / (i + 1); h += `<tr><td>${i + 1}</td><td>${p.wFe.toFixed(4)}</td><td>${p.wNb.toFixed(4)}</td><td>${p.x.toFixed(4)}</td><td>${ra.toFixed(4)}</td></tr>`; });
     h += `</table></div>`;
@@ -323,7 +424,7 @@ export default function App() {
     const x = calcX(fe, nb);
     setSamples((p) => p.map((s) => s.id === activeId ? { ...s, spots: [...s.spots, { id: uid(), wFe: fe, wNb: nb, x }] } : s));
     setWFe(""); setWNb(""); setTimerKey((k) => k + 1);
-    setStatus(`Spot ${(active?.spots.length || 0) + 1} recorded — x = ${x.toFixed(4)}`);
+    setStatus(`Spot ${(active?.spots.length || 0) + 1} recorded — x = ${fmtX(x)}`);
     setTimeout(() => feRef.current?.focus(), 50);
   };
 
@@ -372,7 +473,7 @@ export default function App() {
                   </div>
                   <div className="sample-item-meta">
                     {s.spots.length} spot{s.spots.length !== 1 ? "s" : ""}
-                    {sst.n > 0 && ` · x̄ = ${sst.mean.toFixed(4)}`}
+                    {sst.n > 0 && ` · x̄ = ${fmtX(sst.mean)}`}
                   </div>
                 </div>
               );
@@ -457,16 +558,16 @@ export default function App() {
           <aside className="stats-panel">
             <div className="section-label">Statistics — Sample #{active.number}</div>
             <div className="stat-grid">
-              <div className="stat-box"><div className="stat-label">Mean x</div><div className="stat-value accent">{st.mean.toFixed(4)}</div></div>
-              <div className="stat-box"><div className="stat-label">Std Dev</div><div className="stat-value">{st.std.toFixed(4)}</div></div>
-              <div className="stat-box"><div className="stat-label">Min</div><div className="stat-value green">{st.min.toFixed(4)}</div></div>
-              <div className="stat-box"><div className="stat-label">Max</div><div className="stat-value orange">{st.max.toFixed(4)}</div></div>
+              <div className="stat-box"><div className="stat-label">Mean x</div><div className="stat-value accent">{fmtX(st.mean)}</div></div>
+              <div className="stat-box"><div className="stat-label">Std Dev</div><div className="stat-value">{fmtX(st.std)}</div></div>
+              <div className="stat-box"><div className="stat-label">Min</div><div className="stat-value green">{fmtX(st.min)}</div></div>
+              <div className="stat-box"><div className="stat-label">Max</div><div className="stat-value orange">{fmtX(st.max)}</div></div>
               <div className="stat-box"><div className="stat-label">n</div><div className="stat-value">{st.n}</div></div>
             </div>
             <div className="comp-card">
               <div className="comp-label">Composition</div>
-              <div className="comp-value">Fe<sub>{st.mean.toFixed(4)}</sub>NbS<sub>2</sub></div>
-              {st.n > 1 && <div className="comp-unc">± {st.std.toFixed(4)} (1σ, n={st.n})</div>}
+              <div className="comp-value">Fe<sub>{fmtX(st.mean)}</sub>NbS<sub>2</sub></div>
+              {st.n > 1 && <div className="comp-unc">± {fmtX(st.std)} (1σ, n={st.n})</div>}
             </div>
             <Histogram xValues={active.spots.map((p) => p.x)} st={st} />
             <SummaryChart samples={samples} />

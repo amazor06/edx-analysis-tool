@@ -1,37 +1,56 @@
 # EDX Composition Analyzer
 
-A Python tool for analyzing EDX weight percentage data and calculating Fe concentration in FeₓNbS₂ samples.
-
-## Features
-
-- Computes Fe concentration from Fe and Nb weight percentages
-- Supports multiple samples and multiple points per sample
-- Tracks running averages
-- Generates a formatted PDF report
-- Organizes results by sample number
+A React-based tool for analyzing EDX weight-percentage data and calculating Fe concentration in Fe<sub>x</sub>NbS<sub>2</sub> samples.
 
 ## Formula
 
-x = (w_Fe / 55.845) * (92.906 / w_Nb)
+```
+x = (w_Fe / 55.845) × (92.906 / w_Nb)
+```
+
+## Features
+
+- **Flexible measurements** — any number of spots per sample, no hardcoded limits
+- **Live statistics** — mean, standard deviation, min, max, and n update in real time
+- **Histogram** — distribution of x values plotted per sample
+- **Cross-sample comparison** — mean ± σ bar chart when multiple samples exist
+- **Measurement timer** — configurable countdown with chime sound and macOS notification
+- **PDF report** — print-ready page with summary table and per-sample detail
+- **Excel export** — multi-sheet workbook (Spot Data + Summary)
+- **CSV export** — spot-level data plus summary statistics
+
+## Setup
+
+Requires [Node.js](https://nodejs.org/) (install with `brew install node` on macOS if needed).
+
+```bash
+npm create vite@latest edx-analyzer -- --template react
+cd edx-analyzer
+npm install
+npm install recharts xlsx
+```
+
+Copy `App.jsx` and `App.css` into the `src/` directory:
+
+```bash
+cp App.jsx src/App.jsx
+cp App.css src/App.css
+```
 
 ## Usage
 
-Run the script and enter:
-- sample number
-- optional sample name
-- Fe weight %
-- Nb weight %
+```bash
+cd edx-analyzer
+npm run dev
+```
 
-The program generates a PDF report at the end.
+Opens at [http://localhost:5173](http://localhost:5173). Your browser will ask to allow notifications on first use — accept to get timer alerts when the app isn't in focus.
 
-## Requirements
+## Keyboard Shortcuts
 
-- Python 3
-- reportlab
+- **Enter** in Fe field → jumps to Nb field
+- **Enter** in Nb field → adds the spot
 
-## Output
+## Other Tools
 
-- PDF report with separated sample sections
-- point-by-point values
-- running averages
-- final average composition for each sample
+- `Synthesis.py` — calculates masses of Fe, Nb, and S needed for a given Fe concentration and total sample mass
